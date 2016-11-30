@@ -21,8 +21,8 @@
       {% endif %}
     {% endblock %}
     {% endcomment %}
-    <form id="changelist-form" method="post"{% if formset.is_multipart %} enctype="multipart/form-data"{% endif %} novalidate>{% csrf_token %}
       {% include formset.opts.formset_template %}
+    {% block pagination %}{% pagination view %}{% endblock pagination %}
     </form>
   </div>
 

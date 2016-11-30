@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 from __future__ import unicode_literals
 
+from django.core.paginator import Paginator
+
 from ... import forms
 
 class ControllerOptions(object):
@@ -14,6 +16,11 @@ class ControllerOptions(object):
 
     modelform_class = forms.ModelForm
     formset_class = forms.BaseModelFormSet
+
+    paginator = Paginator
+    list_per_page = 5  # 100
+    list_max_show_all = 200
+
     formset_template = 'inline/tabular.html'
 
     # unevaluated

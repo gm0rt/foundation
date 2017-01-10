@@ -1,0 +1,19 @@
+{% load i18n static %}
+
+{% block inline-related-object %}
+ <div class="panel panel-default">
+     <div class="panel-header">
+        <h4>
+            <span>
+                {{ related_instance }}&nbsp;
+                &nbsp;<a href="{{ related_instance.get_view_url }}" class="btn btn-default btn-sm">{% trans 'View' %}</a>
+                &nbsp;<a href="{{ related_instance.get_edit_url }}" class="btn btn-default btn-sm">{% trans 'Edit' %}</a>
+                &nbsp;<a href="{{ related_instance.get_delete_url }}" class="btn btn-default btn-sm">{% trans 'Delete' %}</a> 
+            </span>
+        </h4>
+     </div>
+     <div class="panel-body">
+         <a href="{{ related_instance.get_view_url }}">TODO</a> <!-- TODO -->
+     </div>
+ </div>
+{% endblock inline-related-object %}

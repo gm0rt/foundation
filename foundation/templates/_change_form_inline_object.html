@@ -1,0 +1,17 @@
+{% load i18n static %}
+
+{% block inline-object %}
+ <hr/>
+ <h3>
+     <span>
+         {{ inline_formset.opts.verbose_name_plural|title }}&nbsp;
+         &nbsp;<a href="{{ inline.get_add_url }}" class="btn btn-default">{% trans 'Add ' %}{{ inline.opts.verbose_name|title }}</a>
+     </span>
+ </h3>
+ {% for related_instance in inline_formset.queryset %}
+    {% include "_change_form_inline_related_object.html" %}
+    {% if not forloop.last %}
+     <br/>
+    {% endif %}
+ {% endfor %}
+{% endblock inline-object %}

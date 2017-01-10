@@ -32,6 +32,4 @@ class SingleObjectMixin(query.SingleObjectMixin, ControllerMixin):
 
 
 class DetailView(SingleObjectMixin, detail.DetailView):
-
-    mode = 'view'
-    template_name = 'detail.html'
+    pass

@@ -1,8 +1,16 @@
 # -*- coding: utf-8 -*-
+from backend.forms import fields as form_fields
 from django.core.validators import _lazy_re_compile, RegexValidator
 from django.db.models.fields import *  # NOQA
 from django.utils.translation import ugettext as _
 
+
+class CharField(CharField):
+
+    def formfield(self, **kwargs):
+        defaults = {'form_class': form_fields.CharField}
+        defaults.update(kwargs)
+        return super(CharField, self).formfield(**defaults)
 
 slug_re = _lazy_re_compile(r'^(?=.*[-a-zA-Z_])[-a-zA-Z0-9_]+\Z')
 validate_slug = RegexValidator(

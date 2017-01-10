@@ -4,12 +4,14 @@ import datetime
 import decimal
 from collections import defaultdict
 
-from django.apps import apps
-from django.conf import settings
+# from django.contrib.auth import get_permission_codename
 from django.core.exceptions import FieldDoesNotExist
 from django.db import models
+# from django.db.models.constants import LOOKUP_SEP
 from django.db.models.deletion import Collector
+# from django.db.models.sql.constants import QUERY_TERMS
 from django.forms.utils import pretty_name
+# from django.urls import NoReverseMatch, reverse
 from django.utils import formats, six, timezone
 from django.utils.encoding import force_str, force_text, smart_text
 from django.utils.html import format_html
@@ -17,6 +19,8 @@ from django.utils.text import capfirst
 from django.urls.base import reverse
 from django.urls.exceptions import NoReverseMatch
 
+# from django.utils.text import capfirst
+# from django.utils.translation import ungettext
 
 def get_content_type_for_model(obj):
     # Since this module gets imported in the application's root package,
@@ -37,6 +41,44 @@ def get_project_app_configs():
         if list(get_eligible_models(app_config)):
             yield app_config
 
+
+'''
+def lookup_needs_distinct(opts, lookup_path):
+    """
+    Returns True if 'distinct()' should be used to query the given lookup path.
+    """
+    lookup_fields = lookup_path.split('__')
+    # Remove the last item of the lookup path if it is a query term
+    if lookup_fields[-1] in QUERY_TERMS:
+        lookup_fields = lookup_fields[:-1]
+    # Now go through the fields (following all relations) and look for an m2m
+    for field_name in lookup_fields:
+        field = opts.get_field(field_name)
+        if hasattr(field, 'get_path_info'):
+            # This field is a relation, update opts to follow the relation
+            path_info = field.get_path_info()
+            opts = path_info[-1].to_opts
+            if any(path.m2m for path in path_info):
+                # This field is a m2m relation so we know we need to call distinct
+                return True
+    return False
+
+
+def prepare_lookup_value(key, value):
+    """
+    Returns a lookup value prepared to be used in queryset filtering.
+    """
+    # if key ends with __in, split parameter into separate values
+    if key.endswith('__in'):
+        value = value.split(',')
+    # if key ends with __isnull, special case '' and the string literals 'false' and '0'
+    if key.endswith('__isnull'):
+        if value.lower() in ('', 'false', '0'):
+            value = False
+        else:
+            value = True
+    return value
+'''
 
 def quote(s):
     """
@@ -248,6 +290,46 @@ def _get_non_gfk_field(opts, name):
     return field
 
 
+'''
+def model_format_dict(obj):
+    """
+    Return a `dict` with keys 'verbose_name' and 'verbose_name_plural',
+    typically for use with string formatting.
+
+    `obj` may be a `Model` instance, `Model` subclass, or `QuerySet` instance.
+    """
+    if isinstance(obj, (models.Model, models.base.ModelBase)):
+        opts = obj._meta
+    elif isinstance(obj, models.query.QuerySet):
+        opts = obj.model._meta
+    else:
+        opts = obj
+    return {
+        'verbose_name': force_text(opts.verbose_name),
+        'verbose_name_plural': force_text(opts.verbose_name_plural)
+    }
+
+
+def model_ngettext(obj, n=None):
+    """
+    Return the appropriate `verbose_name` or `verbose_name_plural` value for
+    `obj` depending on the count `n`.
+
+    `obj` may be a `Model` instance, `Model` subclass, or `QuerySet` instance.
+    If `obj` is a `QuerySet` instance, `n` is optional and the length of the
+    `QuerySet` is used.
+    """
+    if isinstance(obj, models.query.QuerySet):
+        if n is None:
+            n = obj.count()
+        obj = obj.model
+    d = model_format_dict(obj)
+    singular, plural = d["verbose_name"], d["verbose_name_plural"]
+    return ungettext(singular, plural, n or 0)
+
+'''
+
+
 def lookup_field(name, obj, controller=None):
     opts = obj._meta
     try:
@@ -386,3 +468,77 @@ def display_for_field(value, field, empty_value_display):
         return format_html('<a href="{}">{}</a>', value.url, value)
     else:
         return display_for_value(value, empty_value_display)
+
+
+
+'''
+class NotRelationField(Exception):
+    pass
+
+
+def get_model_from_relation(field):
+    if hasattr(field, 'get_path_info'):
+        return field.get_path_info()[-1].to_opts.model
+    else:
+        raise NotRelationField
+
+
+def reverse_field_path(model, path):
+    """ Create a reversed field path.
+
+    E.g. Given (Order, "user__groups"),
+    return (Group, "user__order").
+
+    Final field must be a related model, not a data field.
+    """
+    reversed_path = []
+    parent = model
+    pieces = path.split(LOOKUP_SEP)
+    for piece in pieces:
+        field = parent._meta.get_field(piece)
+        # skip trailing data field if extant:
+        if len(reversed_path) == len(pieces) - 1:  # final iteration
+            try:
+                get_model_from_relation(field)
+            except NotRelationField:
+                break
+
+        # Field should point to another model
+        if field.is_relation and not (field.auto_created and not field.concrete):
+            related_name = field.related_query_name()
+            parent = field.remote_field.model
+        else:
+            related_name = field.field.name
+            parent = field.related_model
+        reversed_path.insert(0, related_name)
+    return (parent, LOOKUP_SEP.join(reversed_path))
+
+
+def get_fields_from_path(model, path):
+    """ Return list of Fields given path relative to model.
+
+    e.g. (ModelX, "user__groups__name") -> [
+        <django.db.models.fields.related.ForeignKey object at 0x...>,
+        <django.db.models.fields.related.ManyToManyField object at 0x...>,
+        <django.db.models.fields.CharField object at 0x...>,
+    ]
+    """
+    pieces = path.split(LOOKUP_SEP)
+    fields = []
+    for piece in pieces:
+        if fields:
+            parent = get_model_from_relation(fields[-1])
+        else:
+            parent = model
+        fields.append(parent._meta.get_field(piece))
+    return fields
+
+
+def remove_trailing_data_field(fields):
+    """ Discard trailing non-relation field if extant. """
+    try:
+        get_model_from_relation(fields[-1])
+    except NotRelationField:
+        fields = fields[:-1]
+    return fields
+'''

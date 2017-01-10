@@ -56,6 +56,23 @@ def render(urlpatterns, base='', namespace=None, depth=0):
 
 
 class Backend(six.with_metaclass(MediaDefiningClass, Registry)):
+    '''
+    # Text to put at the top of the admin index page.
+    index_title = ugettext_lazy('Site administration')
+
+    # URL for the "View site" link at the top of each admin page.
+    site_url = '/'
+
+    _empty_value_display = '-'
+
+    login_form = None
+    index_template = None
+    app_index_template = None
+    login_template = None
+    logout_template = None
+    password_change_template = None
+    password_change_done_template = None
+    '''
 
     create_permissions = False
 
@@ -103,6 +120,130 @@ class Backend(six.with_metaclass(MediaDefiningClass, Registry)):
         for model in model_or_iterable:
             super(Backend, self).register(controller_class, model, **options)
 
+
+
+    '''
+    def add_action(self, action, name=None):
+        """
+        Register an action to be available globally.
+        """
+        name = name or action.__name__
+        self._actions[name] = action
+        self._global_actions[name] = action
+
+    def disable_action(self, name):
+        """
+        Disable a globally-registered action. Raises KeyError for invalid names.
+        """
+        del self._actions[name]
+
+    def get_action(self, name):
+        """
+        Explicitly get a registered global action whether it's enabled or
+        not. Raises KeyError for invalid names.
+        """
+        return self._global_actions[name]
+
+    @property
+    def actions(self):
+        """
+        Get all the enabled actions as an iterable of (name, func).
+        """
+        return six.iteritems(self._actions)
+
+    @property
+    def empty_value_display(self):
+        return self._empty_value_display
+
+    @empty_value_display.setter
+    def empty_value_display(self, empty_value_display):
+        self._empty_value_display = empty_value_display
+
+    def has_permission(self, request):
+        """
+        Returns True if the given HttpRequest has permission to view
+        *at least one* page in the admin site.
+        """
+        return request.user.is_active and request.user.is_staff
+
+    def check_dependencies(self):
+        """
+        Check that all things needed to run the admin have been correctly installed.
+
+        The default implementation checks that admin and contenttypes apps are
+        installed, as well as the auth context processor.
+        """
+        if not apps.is_installed('django.contrib.admin'):
+            raise ImproperlyConfigured(
+                "Put 'django.contrib.admin' in your INSTALLED_APPS "
+                "setting in order to use the admin application.")
+        if not apps.is_installed('django.contrib.contenttypes'):
+            raise ImproperlyConfigured(
+                "Put 'django.contrib.contenttypes' in your INSTALLED_APPS "
+                "setting in order to use the admin application.")
+        try:
+            default_template_engine = Engine.get_default()
+        except Exception:
+            # Skip this non-critical check:
+            # 1. if the user has a non-trivial TEMPLATES setting and Django
+            #    can't find a default template engine
+            # 2. if anything goes wrong while loading template engines, in
+            #    order to avoid raising an exception from a confusing location
+            # Catching ImproperlyConfigured suffices for 1. but 2. requires
+            # catching all exceptions.
+            pass
+        else:
+            if ('django.contrib.auth.context_processors.auth'
+                    not in default_template_engine.context_processors):
+                raise ImproperlyConfigured(
+                    "Enable 'django.contrib.auth.context_processors.auth' "
+                    "in your TEMPLATES setting in order to use the admin "
+                    "application.")
+
+    def admin_view(self, view, cacheable=False):
+        """
+        Decorator to create an admin view attached to this ``AdminSite``. This
+        wraps the view and provides permission checking by calling
+        ``self.has_permission``.
+
+        You'll want to use this from within ``AdminSite.get_urls()``:
+
+            class MyAdminSite(AdminSite):
+
+                def get_urls(self):
+                    from django.conf.urls import url
+
+                    urls = super(MyAdminSite, self).get_urls()
+                    urls += [
+                        url(r'^my_view/$', self.admin_view(some_view))
+                    ]
+                    return urls
+
+        By default, admin_views are marked non-cacheable using the
+        ``never_cache`` decorator. If the view can be safely cached, set
+        cacheable=True.
+        """
+        def inner(request, *args, **kwargs):
+            if not self.has_permission(request):
+                if request.path == reverse('admin:logout', current_app=self.name):
+                    index_path = reverse('admin:index', current_app=self.name)
+                    return HttpResponseRedirect(index_path)
+                # Inner import to prevent django.contrib.admin (app) from
+                # importing django.contrib.auth.models.User (unrelated model).
+                from django.contrib.auth.views import redirect_to_login
+                return redirect_to_login(
+                    request.get_full_path(),
+                    reverse('admin:login', current_app=self.name)
+                )
+            return view(request, *args, **kwargs)
+        if not cacheable:
+            inner = never_cache(inner)
+        # We add csrf_protect here so this function can be used as a utility
+        # function for any view, without having to repeat 'csrf_protect'.
+        if not getattr(view, 'csrf_exempt', False):
+            inner = csrf_protect(inner)
+        return update_wrapper(inner, view)
+    '''
     def get_urls(self, urlpatterns=None):
         """
         May be linked to ROOT_URLCONF directly or used to extend URLs from an
@@ -215,6 +356,10 @@ class Backend(six.with_metaclass(MediaDefiningClass, Registry)):
     def urls(self):
         return self.get_urls()  # , 'admin', 'admin'
 
+    #@property
+    #def media(self):
+    #    return Media(css=self.css, js=self.js)
+
     def get_available_apps(self, request):
         """
         Returns a sorted list of all the installed apps that have been
@@ -248,7 +393,129 @@ class Backend(six.with_metaclass(MediaDefiningClass, Registry)):
             # 'has_permission': self.has_permission(view),
             'available_apps': self.get_available_apps(request),
         }
+    '''
 
+    def i18n_javascript(self, request):
+        """
+        Displays the i18n JavaScript that the Django admin requires.
+
+        This takes into account the USE_I18N setting. If it's set to False, the
+        generated JavaScript will be leaner and faster.
+        """
+        if settings.USE_I18N:
+            from django.views.i18n import javascript_catalog
+        else:
+            from django.views.i18n import null_javascript_catalog as javascript_catalog
+        return javascript_catalog(request, packages=['django.conf', 'django.contrib.admin'])
+
+    def _build_app_dict(self, request, label=None):
+        """
+        Builds the app dictionary. Takes an optional label parameters to filter
+        models of a specific app.
+        """
+        app_dict = {}
+
+        if label:
+            models = {
+                m: m_a for m, m_a in self._registry.items()
+                if m._meta.app_label == label
+            }
+        else:
+            models = self._registry
+
+        for model, model_admin in models.items():
+            app_label = model._meta.app_label
+
+            has_module_perms = model_admin.has_module_permission(request)
+            if not has_module_perms:
+                if label:
+                    raise PermissionDenied
+                continue
+
+            perms = model_admin.get_model_perms(request)
+
+            # Check whether user has any perm for this module.
+            # If so, add the module to the model_list.
+            if True not in perms.values():
+                continue
+
+            info = (app_label, model._meta.model_name)
+            model_dict = {
+                'name': capfirst(model._meta.verbose_name_plural),
+                'object_name': model._meta.object_name,
+                'perms': perms,
+            }
+            if perms.get('change'):
+                try:
+                    model_dict['admin_url'] = reverse('admin:%s_%s_changelist' % info, current_app=self.name)
+                except NoReverseMatch:
+                    pass
+            if perms.get('add'):
+                try:
+                    model_dict['add_url'] = reverse('admin:%s_%s_add' % info, current_app=self.name)
+                except NoReverseMatch:
+                    pass
+
+            if app_label in app_dict:
+                app_dict[app_label]['models'].append(model_dict)
+            else:
+                app_dict[app_label] = {
+                    'name': apps.get_app_config(app_label).verbose_name,
+                    'app_label': app_label,
+                    'app_url': reverse(
+                        'admin:app_list',
+                        kwargs={'app_label': app_label},
+                        current_app=self.name,
+                    ),
+                    'has_module_perms': has_module_perms,
+                    'models': [model_dict],
+                }
+
+        if label:
+            return app_dict.get(label)
+        return app_dict
+
+    @never_cache
+    def index(self, request, extra_context=None):
+        """
+        Displays the main admin index page, which lists all of the installed
+        apps that have been registered in this site.
+        """
+        app_list = self.get_app_list(request)
+
+        context = dict(
+            self.each_context(request),
+            title=self.index_title,
+            app_list=app_list,
+        )
+        context.update(extra_context or {})
+
+        request.current_app = self.name
+
+        return TemplateResponse(request, self.index_template or
+                                'admin/index.html', context)
+
+    def app_index(self, request, app_label, extra_context=None):
+        app_dict = self._build_app_dict(request, app_label)
+        if not app_dict:
+            raise Http404('The requested admin page does not exist.')
+        # Sort the models alphabetically within each app.
+        app_dict['models'].sort(key=lambda x: x['name'])
+        app_name = apps.get_app_config(app_label).verbose_name
+        context = dict(self.each_context(request),
+            title=_('%(app)s administration') % {'app': app_name},
+            app_list=[app_dict],
+            app_label=app_label,
+        )
+        context.update(extra_context or {})
+
+        request.current_app = self.name
+
+        return TemplateResponse(request, self.app_index_template or [
+            'admin/%s/app_index.html' % app_label,
+            'admin/app_index.html'
+        ], context)
+    '''
 
 # For now, a singleton list acting as a Backend Registry
 backends = []

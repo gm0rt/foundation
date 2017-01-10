@@ -2,11 +2,11 @@
 from __future__ import unicode_literals
 
 from django.core.exceptions import ImproperlyConfigured
-from django.forms import MediaDefiningClass
 from django.utils import six
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_protect
 
+from ... import forms
 from . import components
 from .options import ControllerOptions
 
@@ -22,7 +22,7 @@ class IncorrectLookupParameters(Exception):
 csrf_protect_m = method_decorator(csrf_protect)
 
 
-class ControllerBase(MediaDefiningClass):
+class ControllerBase(forms.MediaDefiningClass):
 
     def __new__(cls, name, bases, attrs):
         attrs['opts'] = ControllerOptions(attrs)

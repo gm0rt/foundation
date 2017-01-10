@@ -15,6 +15,4 @@ class MultipleObjectMixin(query.MultipleObjectMixin, ControllerMixin):
 
 
 class ListView(MultipleObjectMixin, list.ListView):
-
-    mode = 'list'
-    template_name = 'list.html'
+    pass

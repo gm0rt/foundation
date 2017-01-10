@@ -32,6 +32,33 @@ class ControllerOptions(object):
     show_change_link = False
     classes = None
 
+    """
+    
+    '''
+    list_display = ('__unicode__',)
+    list_display_links = ()
+    list_select_related = False
+    list_per_page = 100
+    list_max_show_all = 200
+    list_editable = ()
+    date_hierarchy = None
+    save_as = False
+    save_as_continue = True
+    save_on_top = False
+    paginator = Paginator
+    inlines = []
+
+    # Custom templates (designed to be over-ridden in subclasses)
+    add_form_template = None
+    change_form_template = None
+    change_list_template = None
+    delete_confirmation_template = None
+    delete_selected_confirmation_template = None
+    object_history_template = None
+
+    checks_class = ModelAdminChecks
+    """
+
     def update(self, attrs):
         for key in dir(self):
             if not key.startswith('_'):

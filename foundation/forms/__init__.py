@@ -3,3 +3,4 @@ from .fields import *
 from .fieldsets import Fieldset
 from .forms import *
 from .models import*
+from .widgets import *

@@ -86,6 +86,13 @@ class BaseModelFormMixin(QueryMixin):
         NOTE: There is a feedback loop with get_form here where when fields are
         missing on the controller it will go back to get_form with fields=None
         """
+        # TODO: consider request field whitelist (e.g. user-controlled)
+        # TODO: consider view field whitelist
+        # TODO: consider controller mode fields (with fallback)
+        # TODO: for list mode, consider formset fallback?
+        # TODO: for all modes, consider form fallback
+        # TODO: rinse-wash-repeat for exclude
+
         # fields can be a mode:whitelist dictionary
         if isinstance(self.fields, dict):
             fields = self.fields.get(mode)
@@ -95,6 +102,14 @@ class BaseModelFormMixin(QueryMixin):
                 fields = self.fields.get('public')
         else:
             fields = self.fields
+
+        # NOTE: This gets called as a helper to get_form_class_kwargs. Recurring
+        # here is avoided by ensuring fields=None is passed to that method.
+        # TODO: remove
+        # if fields is None:
+        #     form = self.get_formset_class(view, obj, fields=None).form
+        #     fields = list(form.base_fields) + \
+        #         list(self.get_readonly_fields(view, obj))
 
         return fields
 
@@ -248,6 +263,41 @@ class BaseModelFormMixin(QueryMixin):
         if db_field.choices:
             return self.formfield_for_choice_field(db_field, **kwargs)
 
+        # ForeignKey or ManyToManyFields
+        if isinstance(db_field, models.ManyToManyField) or isinstance(db_field, models.ForeignKey):
+            # Combine the field kwargs with any options for formfield_overrides.
+            # Make sure the passed in **kwargs override anything in
+            # formfield_overrides because **kwargs is more specific, and should
+            # always win.
+            if db_field.__class__ in self.formfield_overrides:
+                kwargs = dict(self.formfield_overrides[db_field.__class__], **kwargs)
+
+            # Get the correct formfield.
+            if isinstance(db_field, models.ForeignKey):
+                formfield = self.formfield_for_foreignkey(db_field, **kwargs)
+            elif isinstance(db_field, models.ManyToManyField):
+                formfield = self.formfield_for_manytomany(db_field, **kwargs)
+
+            # For non-raw_id fields, wrap the widget with a wrapper that adds
+            # extra HTML -- the "add other" interface -- to the end of the
+            # rendered output. formfield can be None if it came from a
+            # OneToOneField with parent_link=True or a M2M intermediary.
+            if formfield and db_field.name not in self.raw_id_fields:
+                related_model = db_field.remote_field.model
+                related_controller = self.view.get_related_controller(related_model)
+                wrapper_kwargs = {}
+                # if related_controller:
+                #     wrapper_kwargs.update(
+                #         can_add_related=related_controller.has_add_permission(request),
+                #         can_change_related=related_controller.has_change_permission(request),
+                #         can_delete_related=related_controller.has_delete_permission(request),
+                #     )
+                formfield.widget = forms.RelatedFieldWidgetWrapper(
+                    formfield.widget, db_field.remote_field, related_controller, **wrapper_kwargs
+                )
+
+            return formfield
+
         # If we've got overrides for the formfield defined, use 'em. **kwargs
         # passed to formfield_for_dbfield override the defaults.
         for klass in db_field.__class__.mro():
@@ -296,7 +346,16 @@ class BaseModelFormMixin(QueryMixin):
         """
         Get a form Field for a ForeignKey.
         """
+        from django.contrib.admin import widgets
+
         db = kwargs.get('using')
+        if db_field.name in self.raw_id_fields:
+            kwargs['widget'] = widgets.ForeignKeyRawIdWidget(db_field.remote_field, self.admin_site, using=db)
+        elif db_field.name in self.radio_fields:
+            kwargs['widget'] = widgets.AdminRadioSelect(attrs={
+                'class': get_ul_class(self.radio_fields[db_field.name]),
+            })
+            kwargs['empty_label'] = _('None') if db_field.blank else None
 
         if 'queryset' not in kwargs:
             queryset = self.get_field_queryset(db, db_field)
@@ -311,10 +370,19 @@ class BaseModelFormMixin(QueryMixin):
         """
         # If it uses an intermediary model that isn't auto created, don't show
         # a field in admin.
+        from django.contrib.admin import widgets
 
         if not db_field.remote_field.through._meta.auto_created:
             return None
         db = kwargs.get('using')
+
+        if db_field.name in self.raw_id_fields:
+            kwargs['widget'] = widgets.ManyToManyRawIdWidget(db_field.remote_field, self.admin_site, using=db)
+        elif db_field.name in (list(self.filter_vertical) + list(self.filter_horizontal)):
+            kwargs['widget'] = widgets.FilteredSelectMultiple(
+                db_field.verbose_name,
+                db_field.name in self.filter_vertical
+            )
 
         if 'queryset' not in kwargs:
             queryset = self.get_field_queryset(db, db_field)
@@ -327,3 +395,28 @@ class BaseModelFormMixin(QueryMixin):
             help_text = form_field.help_text
             form_field.help_text = string_concat(help_text, ' ', msg) if help_text else msg
         return form_field
+
+    def get_view_on_site_url(self, obj=None):
+        # TODO: REMOVE THIS... adding back to satiate admin inline helper for now
+        if obj is None or not self.view_on_site:
+            return None
+
+        if callable(self.view_on_site):
+            return self.view_on_site(obj)
+        elif self.view_on_site and hasattr(obj, 'get_absolute_url'):
+            # use the ContentType lookup if view_on_site is True
+            return reverse('admin:view_on_site', kwargs={
+                'content_type_id': get_content_type_for_model(obj).pk,
+                'object_id': obj.pk
+            })
+
+    '''
+    def get_empty_value_display(self):
+        """
+        Return the empty_value_display set on ModelAdmin or AdminSite.
+        """
+        try:
+            return mark_safe(self.empty_value_display)
+        except AttributeError:
+            return mark_safe(self.admin_site.empty_value_display)
+    '''
